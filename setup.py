@@ -15,7 +15,7 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
-    python_requires='>=3.9',
+    python_requires='>=3.6',
     install_requires=[],
     test_suite='test',
 )

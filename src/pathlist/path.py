@@ -7,6 +7,10 @@ import shutil
 
 from packaging.version import Version
 
+
+PYTHON_VERSION = Version(platform.python_version())
+
+
 class CountedList(list):
     def __repr__(self):
         max_lines = 15
@@ -143,6 +147,10 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
         :param new: str, Path object
         :return: Path object
         '''
+        if PYTHON_VERSION < Version('3.8'):
+            self = str(self)
+            new = str(new)
+
         shutil.move(self, new)
         return Path(new)
 
@@ -153,6 +161,14 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
         :return: bool
         '''
         return self.is_dir()
+    
+    def with_stem(self, stem: str):
+        '''
+        Return a new path with the stem changed.
+
+        To support python version < 3.9
+        '''
+        return self.with_name(stem + self.suffix)
     
 
 def get_directory_tree(root: Path = '.', indent=0, verbose=True, depth=1<<30):
