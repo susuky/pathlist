@@ -54,6 +54,12 @@ def _ls(path, pattern='', purestr=False, depth=1):
     return result
 
 
+def _ensure_path_compatibility(*paths):
+    if PYTHON_VERSION < Version('3.8'):
+        paths = tuple(str(path) for path in paths)
+    return paths[0] if len(paths) == 1 else paths
+
+
 class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
     '''
     A subclass of the built-in `pathlib` module's WindowsPath or PosixPath class.
@@ -116,7 +122,6 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
     def __str__(self):
         return super().__str__().replace(os.sep, '/')
         
-
     def ls(self='.', pattern='', purestr=False):
         '''
         List all the files in the directory specified by the path, 
@@ -133,6 +138,8 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
         List all the files in the directory tree specified by the path, 
         excluding hidden files, and filtered based on an optional pattern.
 
+        The `rls` method can be slow for large directories
+
         :param pattern: string, optional
             Filter the files returned based on the given pattern.
         :return: list of Path objects
@@ -140,19 +147,58 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
         depth = int(depth) if depth >= 0 else 1 << 30
         return _ls(self, pattern, purestr=purestr, depth=depth)
     
-    def mv(self, new):
+    def cp(self, dst, recursive=False):
         '''
-        Move the current path to a new location.
+        Copy the file or directory to the given destination.
 
-        :param new: str, Path object
+        :param dst: The destination path.
+        :type dst: str or Path
+        :param recursive: If True, copy directories and their contents recursively.
+        :type recursive: bool
+        :raises IsADirectoryError: If trying to copy a directory without recursive=True.
+        '''
+        if self.is_dir():
+            if recursive:
+                self, dst = _ensure_path_compatibility(self, dst)
+                shutil.copytree(self, dst)
+            else:
+                raise IsADirectoryError('Use recursive=True to copy directories')
+        else:
+            self, dst = _ensure_path_compatibility(self, dst)
+            shutil.copy2(self, dst)
+
+        return Path(dst)
+    
+    def rm(self, recursive=False):
+        '''
+        Remove the file or directory.
+
+        :param recursive: If True, remove directories and their contents recursively.
+        :type recursive: bool
+        :raises OSError: If trying to remove a non-empty directory without recursive=True.
+        '''
+        if self.is_dir():
+            if recursive:
+                self = _ensure_path_compatibility(self)
+                shutil.rmtree(self)
+                self = Path(self)
+            else:
+                self.rmdir()
+        else:
+            self.unlink()
+        return self
+
+    def mv(self, dst):
+        '''
+        Move the file or directory to the given destination.
+
+        :param dst: The destination path.
+        :type dst: str or Path object
         :return: Path object
         '''
-        if PYTHON_VERSION < Version('3.8'):
-            self = str(self)
-            new = str(new)
-
-        shutil.move(self, new)
-        return Path(new)
+        self, dst = _ensure_path_compatibility(self, dst)
+        shutil.move(self, dst)
+        return Path(dst)
 
     def is_folder(self):
         '''
@@ -171,7 +217,7 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
         return self.with_name(stem + self.suffix)
     
 
-def get_directory_tree(root: Path = '.', indent=0, verbose=True, depth=1<<30):
+def get_directory_tree(root: Path = '.', indent=0, verbose=False, depth=1<<30):
     if depth == -1:
         return ''
 

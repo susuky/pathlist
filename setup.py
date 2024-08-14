@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='pathlist',
-    version='0.0.1',
+    version='0.0.2',
     description='A Python library that extends pathlib with enhanced path manipulation and directory listing capabilities.',
     author='susuky',
     author_email='hpisj322@gmail.com',
