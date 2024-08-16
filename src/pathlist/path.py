@@ -44,7 +44,7 @@ class CountedList(list):
             items = ',\n'.join(f'{indent}{repr(item)}' for item in self)
         else:
             items = ',\n'.join(f'{indent}{repr(item)}' for item in self[:self.max_lines-1])
-            items += f',\n{indent}...,\n{indent}{repr(self[-1])}'
+            items += f',\n{indent}...\n{indent}{repr(self[-1])}'
         items = items[len(indent):]
         return f'(#{count}) [{items}]'
 
@@ -209,7 +209,10 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
                 shutil.rmtree(self)
                 self = Path(self)
             else:
-                self.rmdir()
+                try:
+                    self.rmdir()
+                except OSError as e:
+                    raise OSError(f'Directory {self} is not empty. Use recursive=True to remove non-empty directories') from e
         else:
             self.unlink()
         return self
