@@ -12,15 +12,41 @@ PYTHON_VERSION = Version(platform.python_version())
 
 
 class CountedList(list):
+    '''
+    A custom list with a controlled string representation showing the count and formatted content.
+    '''
+    def __init__(self, iterable=(), /, max_lines=15, max_width=120):
+        super().__init__(iterable)
+        self.max_lines = max_lines
+        self.max_width = max_width
+    
     def __repr__(self):
-        max_lines = 15
+        # TODO: handle nested structures (lists, dicts, sets) differently.
         count = len(self)
-        indent = ' ' * (5 + len(f'{count}'))
-        suffix = f',\n{indent}...' if count > max_lines else ''
+        if count == 0: return '(#0) []'
+
+        indent_length = 5 + len(f'{count}') # for '(#X) ['
+        indent = ' ' * indent_length
         
-        r = super().__repr__()
-        r = f',\n{indent}'.join(r[1:-1].split(', ')[:max_lines])
-        return f'(#{count}) [{r}{suffix}]'
+        # try one-line representation
+        # Avoid using `join` function, because CountedList could be a large list.
+        # one_line = ', '.join(repr(item) for item in self)
+        one_line = f'{repr(self[0])}'
+        for item in self[1:]:
+            one_line += f', {repr(item)}'
+            if len(one_line) + indent_length + 1 > self.max_width:
+                break
+        if len(one_line) + indent_length + 1 <= self.max_width:
+            return f'(#{count}) [{one_line}]'
+            
+        # multi-line representation
+        if count <= self.max_lines:
+            items = ',\n'.join(f'{indent}{repr(item)}' for item in self)
+        else:
+            items = ',\n'.join(f'{indent}{repr(item)}' for item in self[:self.max_lines-1])
+            items += f',\n{indent}...,\n{indent}{repr(self[-1])}'
+        items = items[len(indent):]
+        return f'(#{count}) [{items}]'
 
     def __getitem__(self, index):
         if isinstance(index, list):
