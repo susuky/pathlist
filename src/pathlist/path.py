@@ -14,23 +14,64 @@ PYTHON_VERSION = Version(platform.python_version())
 class CountedList(list):
     '''
     A custom list with a controlled string representation showing the count and formatted content.
+
+    This class extends the built-in list class, providing additional functionality
+    for displaying the list contents in a more readable format, especially for large lists.
+
+    Attributes:
+        max_lines (int): Maximum number of lines to display in the string representation.
+        max_width (int): Maximum width of a single line in the string representation.
+        n (property): Number of items in the list.
+
+    Example:
+        >>> cl = CountedList([1, 2, 3, 4, 5])
+        >>> print(cl)
+        (#5) [1, 2, 3, 4, 5]
+        >>> print(cl.n)
+        5
     '''
     def __init__(self, iterable=(), /, max_lines=15, max_width=120):
+        '''
+        Initialize a new CountedList.
+
+        Args:
+            iterable: An iterable to initialize the list with.
+            max_lines: Maximum number of lines to display in string representation.
+            max_width: Maximum width of a single line in string representation.
+        '''
         super().__init__(iterable)
         self.max_lines = max_lines
         self.max_width = max_width
-    
-    def __repr__(self):
-        # TODO: handle nested structures (lists, dicts, sets) differently.
-        count = len(self)
-        if count == 0: return '(#0) []'
 
-        indent_length = 5 + len(f'{count}') # for '(#X) ['
+    @property
+    def n(self) -> int:
+        '''
+        Get the number of items in the list.
+
+        Returns:
+            int: The number of items in the list.
+        '''
+        return len(self)
+    
+    def __repr__(self) -> str:
+        '''
+        Return a string representation of the CountedList.
+
+        The representation includes the count of items and a formatted list of the contents.
+        For large lists, it truncates the output based on max_lines and max_width.
+
+        Returns:
+            str: A formatted string representation of the CountedList.
+        '''
+        # TODO: handle nested structures (lists, dicts, sets) differently.
+        count = self.n
+        if count == 0:
+            return '(#0) []'
+
+        indent_length = 5 + len(f'{count}')  # for '(#X) ['
         indent = ' ' * indent_length
         
         # try one-line representation
-        # Avoid using `join` function, because CountedList could be a large list.
-        # one_line = ', '.join(repr(item) for item in self)
         one_line = f'{repr(self[0])}'
         for item in self[1:]:
             one_line += f', {repr(item)}'
@@ -49,6 +90,18 @@ class CountedList(list):
         return f'(#{count}) [{items}]'
 
     def __getitem__(self, index):
+        '''
+        Get item(s) from the CountedList.
+
+        This method supports integer indexing, slicing, and list indexing.
+        When slicing or using list indexing, it returns a new CountedList.
+
+        Args:
+            index: An integer, slice, or list of indices.
+
+        Returns:
+            A single item for integer indexing, or a new CountedList for slicing and list indexing.
+        '''
         if isinstance(index, list):
             return CountedList([self[i] for i in index])
         
@@ -56,11 +109,20 @@ class CountedList(list):
         if isinstance(index, slice):
             return CountedList(result)
         
-        # Like the normal list, it return a component instead of a list object.
         return result
         
-    def sample(self, k=1):
+    def sample(self, k: int = 1) -> 'CountedList':
+        '''
+        Return a new CountedList with a random sample of items from this list.
+
+        Args:
+            k (int): The number of items to sample. Defaults to 1.
+
+        Returns:
+            CountedList: A new CountedList containing the sampled items.
+        '''
         return CountedList(random.sample(self, k=k))
+        
         
 def _ls(path, pattern='', purestr=False, depth=1):
     result = CountedList()
@@ -212,7 +274,7 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
                 try:
                     self.rmdir()
                 except OSError as e:
-                    raise OSError(f'Directory {self} is not empty. Use recursive=True to remove non-empty directories') from e
+                    raise OSError(f'Directory `{self}` is not empty. Use `recursive=True` to remove non-empty directories') from e
         else:
             self.unlink()
         return self
