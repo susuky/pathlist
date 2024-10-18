@@ -3,7 +3,7 @@ import os
 import pytest
 import shutil
 
-from pathlist import Path
+from pathlist import Path, get_directory_tree
 
 
 @pytest.fixture
@@ -116,3 +116,21 @@ def test_with_stem(tmp_path):
     new_p = p.with_stem('new_file')
     assert new_p.name == 'new_file.txt'
     assert new_p.parent == p.parent
+
+
+def test_get_directory_tree(tmp_path):
+    root = tmp_path / 'root'
+    root.mkdir()
+    (root / 'file1.txt').touch()
+    sub_dir = root / 'subdir'
+    sub_dir.mkdir()
+    (sub_dir / 'file2.txt').touch()
+
+    expected_output = (
+        '|--[D] root\n'
+        '      |--[F] file1.txt\n'
+        '      |--[D] subdir\n'
+        '            |--[F] file2.txt\n'
+    )
+    assert get_directory_tree(root, indent=0, verbose=False, depth=2) == expected_output
+
