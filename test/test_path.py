@@ -74,7 +74,46 @@ def test_rls(tmp_path):
     files = tmp_path.rls()
     assert len(files) == 10+1
     assert all(isinstance(f, Path) for f in files)
-    assert len(tmp_path.rls('.txt')) == 10
+    assert len(tmp_path.rls('*.txt')) == 10
+
+
+def test_grls(tmp_path):
+    sub_dir = tmp_path / 'subdir'
+    sub_dir.mkdir()
+    for i in range(5):
+        (sub_dir / f'img{i}.png').touch()
+    gen = tmp_path.grls('*.png')
+    results = list(gen)
+    assert len(results) == 5
+    assert all(isinstance(f, Path) for f in results)
+
+
+def test_show_hidden(tmp_path):
+    (tmp_path / '.hidden_file').touch()
+    (tmp_path / 'visible_file').touch()
+    hidden_dir = tmp_path / '.hidden_dir'
+    hidden_dir.mkdir()
+    (hidden_dir / 'inner.txt').touch()
+
+    # hidden entries excluded by default
+    assert len(tmp_path.ls()) == 1
+    assert len(tmp_path.rls()) == 1
+
+    # hidden entries included when show_hidden=True
+    ls_results = tmp_path.ls(show_hidden=True)
+    assert len(ls_results) == 3  # .hidden_file, visible_file, .hidden_dir
+
+    rls_results = tmp_path.rls(show_hidden=True)
+    assert len(rls_results) == 4  # all of the above + inner.txt
+
+
+def test_ls_glob_pattern(tmp_path):
+    (tmp_path / 'photo.jpg').touch()
+    (tmp_path / 'photo.png').touch()
+    (tmp_path / 'document.txt').touch()
+    assert len(tmp_path.ls('*.jpg')) == 1
+    assert len(tmp_path.ls('photo.*')) == 2
+    assert len(tmp_path.ls('*.pdf')) == 0
 
 
 def test_cp(tmp_path):

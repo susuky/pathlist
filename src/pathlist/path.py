@@ -1,9 +1,11 @@
 
+import fnmatch
 import os
 import pathlib
 import platform
 import random
 import shutil
+from typing import Generator, Iterator, List, Optional, Union
 
 from packaging.version import Version
 
@@ -30,14 +32,14 @@ class CountedList(list):
         >>> print(cl.n)
         5
     '''
-    def __init__(self, iterable=(), /, max_lines=15, max_width=120):
+    def __init__(self, iterable=(), /, max_lines: int = 15, max_width: int = 120):
         '''
         Initialize a new CountedList.
 
         Args:
             iterable: An iterable to initialize the list with.
-            max_lines: Maximum number of lines to display in string representation.
-            max_width: Maximum width of a single line in string representation.
+            max_lines (int): Maximum number of lines to display in string representation.
+            max_width (int): Maximum width of a single line in string representation.
         '''
         super().__init__(iterable)
         self.max_lines = max_lines
@@ -52,7 +54,7 @@ class CountedList(list):
             int: The number of items in the list.
         '''
         return len(self)
-    
+
     def __repr__(self) -> str:
         '''
         Return a string representation of the CountedList.
@@ -70,7 +72,7 @@ class CountedList(list):
 
         indent_length = 5 + len(f'{count}')  # for '(#X) ['
         indent = ' ' * indent_length
-        
+
         # try one-line representation
         one_line = f'{repr(self[0])}'
         for item in self[1:]:
@@ -79,12 +81,12 @@ class CountedList(list):
                 break
         if len(one_line) + indent_length + 1 <= self.max_width:
             return f'(#{count}) [{one_line}]'
-            
+
         # multi-line representation
         if count <= self.max_lines:
             items = ',\n'.join(f'{indent}{repr(item)}' for item in self)
         else:
-            items = ',\n'.join(f'{indent}{repr(item)}' for item in self[:self.max_lines-1])
+            items = ',\n'.join(f'{indent}{repr(item)}' for item in self[:self.max_lines - 1])
             items += f',\n{indent}...\n{indent}{repr(self[-1])}'
         items = items[len(indent):]
         return f'(#{count}) [{items}]'
@@ -93,24 +95,24 @@ class CountedList(list):
         '''
         Get item(s) from the CountedList.
 
-        This method supports integer indexing, slicing, and list indexing.
+        Supports integer indexing, slicing, and list indexing.
         When slicing or using list indexing, it returns a new CountedList.
 
         Args:
             index: An integer, slice, or list of indices.
 
         Returns:
-            A single item for integer indexing, or a new CountedList for slicing and list indexing.
+            A single item for integer indexing, or a new CountedList for slicing/list indexing.
         '''
         if isinstance(index, list):
             return CountedList([self[i] for i in index])
-        
+
         result = super().__getitem__(index)
         if isinstance(index, slice):
             return CountedList(result)
-        
+
         return result
-        
+
     def sample(self, k: int = 1) -> 'CountedList':
         '''
         Return a new CountedList with a random sample of items from this list.
@@ -122,24 +124,91 @@ class CountedList(list):
             CountedList: A new CountedList containing the sampled items.
         '''
         return CountedList(random.sample(self, k=k))
-        
-        
-def _ls(path, pattern='', purestr=False, depth=1):
-    result = CountedList()
+
+
+def _ls(
+    path: Union[str, 'Path'],
+    pattern: str = '',
+    purestr: bool = False,
+    show_hidden: bool = False,
+    depth: int = 1,
+    _result: Optional[CountedList] = None,
+) -> CountedList:
+    '''
+    Internal recursive helper for listing directory contents into a single CountedList.
+
+    Uses an accumulator (`_result`) to avoid redundant list allocations across recursion levels.
+    Pattern matching is performed using `fnmatch` against the entry name only.
+
+    Args:
+        path: The directory path to scan.
+        pattern (str): A glob pattern to filter entries by filename (e.g. `'*.jpg'`).
+            An empty string means no filtering.
+        purestr (bool): If True, items are plain strings instead of Path objects.
+        show_hidden (bool): If True, includes hidden files and directories (those starting with `.`).
+        depth (int): Remaining recursion depth. 1 means only the immediate directory.
+        _result (CountedList | None): Accumulator list; created on the first call.
+
+    Returns:
+        CountedList: A flat list of matched paths.
+    '''
+    if _result is None:
+        _result = CountedList()
 
     if not os.path.exists(path):
-        return result
+        return _result
 
     for entry in os.scandir(path):
-        if entry.name.startswith('.'):
+        if not show_hidden and entry.name.startswith('.'):
             continue
 
         _path = entry.path
-        if pattern in _path:
-            result.append(_path if purestr else Path(_path))
+        if not pattern or fnmatch.fnmatch(entry.name, pattern):
+            _result.append(_path if purestr else Path(_path))
+
         if entry.is_dir() and depth > 1:
-            result.extend(_ls(_path, pattern, purestr, depth - 1))
-    return result
+            _ls(_path, pattern, purestr, show_hidden, depth - 1, _result)
+
+    return _result
+
+
+def _grls(
+    path: Union[str, 'Path'],
+    pattern: str = '',
+    purestr: bool = False,
+    show_hidden: bool = False,
+    depth: int = 1,
+) -> Generator:
+    '''
+    Internal recursive generator for lazily listing directory contents.
+
+    Yields one entry at a time without building a full list in memory.
+    Suitable for large directory trees where full materialisation is expensive.
+
+    Args:
+        path: The directory path to scan.
+        pattern (str): A glob pattern to filter entries by filename (e.g. `'*.jpg'`).
+            An empty string means no filtering.
+        purestr (bool): If True, yields plain strings instead of Path objects.
+        show_hidden (bool): If True, includes hidden files and directories (those starting with `.`).
+        depth (int): Remaining recursion depth. 1 means only the immediate directory.
+
+    Yields:
+        str | Path: Matched path entries.
+    '''
+    if not os.path.exists(path):
+        return
+
+    for entry in os.scandir(path):
+        if not show_hidden and entry.name.startswith('.'):
+            continue
+
+        _path = entry.path
+        if not pattern or fnmatch.fnmatch(entry.name, pattern):
+            yield _path if purestr else Path(_path)
+
+        if entry.is_dir() and depth > 1:
+            yield from _grls(_path, pattern, purestr, show_hidden, depth - 1)
 
 
 def _ensure_path_compatibility(*paths):
@@ -150,100 +219,174 @@ def _ensure_path_compatibility(*paths):
 
 class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
     '''
-    A subclass of the built-in `pathlib` module's WindowsPath or PosixPath class.
-    This class adds additional methods to the built-in class to allow for 
-    easier manipulation and querying of paths.
-    '''    
-    def __contains__(self, item):
+    An enhanced subclass of `pathlib.PosixPath` / `pathlib.WindowsPath`.
+
+    Adds shell-like utility methods for listing, copying, moving, and removing
+    paths, as well as convenience properties and pattern-based filtering.
+    '''
+    def __contains__(self, item: str) -> bool:
         '''
-        Checks if an item exists in the parts of the path.
+        Check if an item exists in the parts of the path.
+
+        Args:
+            item (str): A path component to search for.
+
+        Returns:
+            bool: True if `item` is one of the path's components.
         '''
         return item in self.parts
 
-    def has(self, item):
+    def has(self, item: str) -> bool:
         '''
-        Checks if a given item exists in the parts of the path
+        Check if a given component exists in the parts of the path.
 
-        :param item: string
-        :return: bool
+        Args:
+            item (str): A path component to search for.
+
+        Returns:
+            bool: True if `item` is one of the path's components.
         '''
         return item in self.parts
 
-    def has_any(self, items: tuple):
+    def has_any(self, items: tuple) -> bool:
         '''
-        Checks if the path has any items from a given tuple
-        
-        :param items: tuple of strings
-        :return: bool
+        Check if the path contains any of the given components.
+
+        Args:
+            items (tuple): Path components to search for.
+
+        Returns:
+            bool: True if at least one item from `items` is a path component.
         '''
         return bool(set(items) & set(self.parts))
 
-    def has_all(self, items: tuple):
+    def has_all(self, items: tuple) -> bool:
         '''
-        Checks if the path has all items from a given tuple
-        
-        :param items: tuple of strings
-        :return: bool
-        '''
-        return len((set(items) & set(self.parts))) == len(items)
+        Check if the path contains all of the given components.
 
-    def change(self, old, new):
-        '''
-        Replaces an old item with a new item in the parts of the path 
-        and returns the new path
+        Args:
+            items (tuple): Path components to search for.
 
-        :param old: string
-        :param new: string
-        :return: Path object
+        Returns:
+            bool: True if every item in `items` is a path component.
+        '''
+        return len(set(items) & set(self.parts)) == len(items)
+
+    def change(self, old: str, new: str) -> 'Path':
+        '''
+        Replace a component in the path and return the resulting new path.
+
+        Args:
+            old (str): The component to replace.
+            new (str): The replacement component.
+
+        Returns:
+            Path: A new Path with `old` replaced by `new`.
         '''
         return self.__class__(*(part if part != old else new for part in self.parts))
-    
+
     @property
-    def str(self):
+    def str(self) -> str:
         '''
-        Return the string representation of the path.
+        Return the POSIX string representation of the path.
 
-        :return: string
+        Returns:
+            str: The path as a string with forward slashes.
         '''
-        return str(self) # self.as_posix()
-        
-    def __str__(self):
+        return str(self)
+
+    def __str__(self) -> str:
         return super().__str__().replace(os.sep, '/')
-        
-    def ls(self='.', pattern='', purestr=False):
+
+    def ls(self='.', pattern: str = '', purestr: bool = False, show_hidden: bool = False) -> CountedList:
         '''
-        List all the files in the directory specified by the path, 
-        excluding hidden files, and filtered based on an optional pattern
+        List the immediate children of this directory.
 
-        :param pattern: string, optional
-            Filter the files returned based on the given pattern.
-        :return: list of Path objects
+        Hidden entries (names starting with `.`) are excluded by default.
+        Pattern matching uses `fnmatch` against the entry name, so glob patterns
+        like `'*.jpg'` or `'img_*'` are supported.
+
+        Args:
+            pattern (str): A glob pattern to filter results by filename. Defaults to `''` (no filter).
+            purestr (bool): If True, returns plain strings instead of Path objects.
+            show_hidden (bool): If True, includes hidden files and directories.
+
+        Returns:
+            CountedList: Matched entries in the immediate directory.
+
+        Example:
+            >>> Path('/data').ls('*.png')
+            (#3) [...]
         '''
-        return _ls(self, pattern, purestr=purestr, depth=1)
+        return _ls(self, pattern, purestr=purestr, show_hidden=show_hidden, depth=1)
 
-    def rls(self='.', pattern='', purestr=False, depth=-1):
+    def rls(self='.', pattern: str = '', purestr: bool = False, show_hidden: bool = False, depth: int = -1) -> CountedList:
         '''
-        List all the files in the directory tree specified by the path, 
-        excluding hidden files, and filtered based on an optional pattern.
+        Recursively list all entries in the directory tree.
 
-        The `rls` method can be slow for large directories
+        Returns a fully materialised `CountedList`, which is convenient for
+        quick inspection in Jupyter Notebooks.  For large trees where lazy
+        evaluation is preferred, use `grls` instead.
 
-        :param pattern: string, optional
-            Filter the files returned based on the given pattern.
-        :return: list of Path objects
+        Hidden entries (names starting with `.`) are excluded by default.
+        Pattern matching uses `fnmatch` against the entry name.
+
+        Args:
+            pattern (str): A glob pattern to filter results by filename. Defaults to `''` (no filter).
+            purestr (bool): If True, returns plain strings instead of Path objects.
+            show_hidden (bool): If True, includes hidden files and directories.
+            depth (int): Maximum recursion depth. -1 means unlimited. Defaults to -1.
+
+        Returns:
+            CountedList: All matched entries found recursively.
+
+        Example:
+            >>> Path('/data').rls('*.jpg')
+            (#42) [...]
         '''
         depth = int(depth) if depth >= 0 else 1 << 30
-        return _ls(self, pattern, purestr=purestr, depth=depth)
-    
-    def cp(self, dst, recursive=False):
+        return _ls(self, pattern, purestr=purestr, show_hidden=show_hidden, depth=depth)
+
+    def grls(self='.', pattern: str = '', purestr: bool = False, show_hidden: bool = False, depth: int = -1) -> Generator:
+        '''
+        Recursively yield all entries in the directory tree as a generator.
+
+        Unlike `rls`, this method does **not** build a list in memory; it yields
+        one entry at a time.  Use this for very large directory trees to avoid
+        high memory consumption.
+
+        Hidden entries (names starting with `.`) are excluded by default.
+        Pattern matching uses `fnmatch` against the entry name.
+
+        Args:
+            pattern (str): A glob pattern to filter results by filename. Defaults to `''` (no filter).
+            purestr (bool): If True, yields plain strings instead of Path objects.
+            show_hidden (bool): If True, includes hidden files and directories.
+            depth (int): Maximum recursion depth. -1 means unlimited. Defaults to -1.
+
+        Yields:
+            Path | str: Matched path entries.
+
+        Example:
+            >>> for p in Path('/data').grls('*.png'):
+            ...     process(p)
+        '''
+        depth = int(depth) if depth >= 0 else 1 << 30
+        yield from _grls(self, pattern, purestr=purestr, show_hidden=show_hidden, depth=depth)
+
+    def cp(self, dst: Union[str, 'Path'], recursive: bool = False) -> 'Path':
         '''
         Copy the file or directory to the given destination.
 
-        :param dst: The destination path.
-        :type dst: str or Path
-        :param recursive: If True, copy directories and their contents recursively.
-        :type recursive: bool
-        :raises IsADirectoryError: If trying to copy a directory without recursive=True.
+        Args:
+            dst (str | Path): The destination path.
+            recursive (bool): If True, copy directories and their contents recursively.
+
+        Returns:
+            Path: The destination path as a Path object.
+
+        Raises:
+            IsADirectoryError: If trying to copy a directory without `recursive=True`.
         '''
         if self.is_dir():
             if recursive:
@@ -256,14 +399,19 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
             shutil.copy2(self, dst)
 
         return Path(dst)
-    
-    def rm(self, recursive=False):
+
+    def rm(self, recursive: bool = False) -> 'Path':
         '''
         Remove the file or directory.
 
-        :param recursive: If True, remove directories and their contents recursively.
-        :type recursive: bool
-        :raises OSError: If trying to remove a non-empty directory without recursive=True.
+        Args:
+            recursive (bool): If True, remove directories and their contents recursively.
+
+        Returns:
+            Path: This path object (for chaining).
+
+        Raises:
+            OSError: If trying to remove a non-empty directory without `recursive=True`.
         '''
         if self.is_dir():
             if recursive:
@@ -274,41 +422,71 @@ class Path(pathlib.WindowsPath if os.name == 'nt' else pathlib.PosixPath):
                 try:
                     self.rmdir()
                 except OSError as e:
-                    raise OSError(f'Directory `{self}` is not empty. Use `recursive=True` to remove non-empty directories') from e
+                    raise OSError(
+                        f'Directory `{self}` is not empty. Use `recursive=True` to remove non-empty directories'
+                    ) from e
         else:
             self.unlink()
         return self
 
-    def mv(self, dst):
+    def mv(self, dst: Union[str, 'Path']) -> 'Path':
         '''
         Move the file or directory to the given destination.
 
-        :param dst: The destination path.
-        :type dst: str or Path object
-        :return: Path object
+        Args:
+            dst (str | Path): The destination path.
+
+        Returns:
+            Path: The destination path as a Path object.
         '''
         self, dst = _ensure_path_compatibility(self, dst)
         shutil.move(self, dst)
         return Path(dst)
 
-    def is_folder(self):
+    def is_folder(self) -> bool:
         '''
         Check if the path refers to a folder.
 
-        :return: bool
+        Returns:
+            bool: True if the path is a directory.
         '''
         return self.is_dir()
-    
-    def with_stem(self, stem: str):
+
+    def with_stem(self, stem: str) -> 'Path':
         '''
         Return a new path with the stem changed.
 
-        To support python version < 3.9
+        Provided for compatibility with Python versions earlier than 3.9,
+        which lack the built-in `Path.with_stem` method.
+
+        Args:
+            stem (str): The new stem (filename without extension).
+
+        Returns:
+            Path: A new Path with the stem replaced.
         '''
         return self.with_name(stem + self.suffix)
-    
 
-def get_directory_tree(root: Path = '.', indent=0, verbose=False, depth=1<<30):
+
+def get_directory_tree(root: Path = '.', indent: int = 0, verbose: bool = False, depth: int = 1 << 30) -> str:
+    '''
+    Build a text-based tree representation of a directory structure.
+
+    Args:
+        root (Path): The root path to start from.
+        indent (int): Number of spaces to indent the current level.
+        verbose (bool): If True, prints each line as it is built.
+        depth (int): Maximum recursion depth.
+
+    Returns:
+        str: The tree as a multi-line string.
+
+    Example:
+        >>> print(get_directory_tree(Path('/data'), depth=2))
+        |--[D] data
+              |--[F] image.png
+              |--[D] masks
+    '''
     if depth == -1:
         return ''
 
@@ -319,9 +497,5 @@ def get_directory_tree(root: Path = '.', indent=0, verbose=False, depth=1<<30):
 
     if root.is_dir() and depth > 0:
         for child in sorted(root.iterdir(), key=lambda x: x.name):
-            tree += get_directory_tree(child,
-                                         indent + 6,
-                                         verbose=verbose,
-                                         depth=depth - 1)
+            tree += get_directory_tree(child, indent + 6, verbose=verbose, depth=depth - 1)
     return tree
-
